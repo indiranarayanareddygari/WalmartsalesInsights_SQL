@@ -1,0 +1,244 @@
+-- Create database
+CREATE DATABASE IF NOT EXISTS walmartSales;
+
+use walmartSales;
+-- Create table
+CREATE TABLE IF NOT EXISTS sales(
+	invoice_id VARCHAR(30) NOT NULL PRIMARY KEY,
+    branch VARCHAR(5) NOT NULL,
+    city VARCHAR(30) NOT NULL,
+    customer_type VARCHAR(30) NOT NULL,
+    gender VARCHAR(30) NOT NULL,
+    product_line VARCHAR(100) NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    quantity INT NOT NULL,
+    tax_pct FLOAT(6,4) NOT NULL,
+    total DECIMAL(12, 4) NOT NULL,
+    date DATETIME NOT NULL,
+    time TIME NOT NULL,
+    payment VARCHAR(15) NOT NULL,
+    cogs DECIMAL(10,2) NOT NULL,
+    gross_margin_pct FLOAT(11,9),
+    gross_income DECIMAL(12, 4),
+    rating FLOAT(2, 1)
+);
+
+select * from sales;
+-- Add the time_of_day column
+SELECT
+	time,
+	(CASE
+		WHEN `time` BETWEEN "00:00:00" AND "12:00:00" THEN "Morning"
+        WHEN `time` BETWEEN "12:01:00" AND "16:00:00" THEN "Afternoon"
+        ELSE "Evening"
+    END) AS time_of_day
+FROM sales;
+ALTER TABLE sales ADD COLUMN time_of_day VARCHAR(20);
+-- For this to work turn off safe mode for update
+-- Edit > Preferences > SQL Edito > scroll down and toggle safe mode
+-- Reconnect to MySQL: Query > Reconnect to server
+UPDATE sales
+SET time_of_day = (
+	CASE
+		WHEN `time` BETWEEN "00:00:00" AND "12:00:00" THEN "Morning"
+        WHEN `time` BETWEEN "12:01:00" AND "16:00:00" THEN "Afternoon"
+        ELSE "Evening"
+    END
+);
+
+
+ -- do data cleaning check for null values and delete them
+ 
+  -- Analysing the data and performing operations -- 
+  --     					Product Analysis  --
+##	Conduct analysis on the data to understand the different product lines, 
+##	the products lines performing best and the product lines that need to be improved.
+### QUERY 1 : 
+select * from sales;
+select product_line,
+sum(total) as total_revenue,
+avg(total) as Avg_revenue,
+sum(quantity) as total_quantity_sold
+from sales
+group by product_line
+order by total_revenue;
+
+  --  							Sales Analysis --
+## 1. Sales Trends Over Time:
+ -- You can analyze sales trends over time by calculating the total sales and quantities sold for each month or any time period of interest. 
+ -- This can help you identify seasonal trends and understand the effectiveness of sales strategies. 
+ ## QUERY 1: 
+select 
+year(date) as year,
+month(date) as month,
+sum(quantity) as quantity_sold
+from sales
+group by year,month
+order by year,month;
+
+### 2. Sales by Product Line:
+-- To analyze how each product line is performing in terms of sales
+## QUERY2:
+select product_line,
+year(date) as year,
+month(date) as month,
+sum(quantity) as quantity_sold
+from sales
+group by product_line,year,month
+order by quantity_sold;
+
+##3. Sales by Branch or City:
+ -- You can also analyze sales by branch or city to understand which locations are performing better.
+ ## QUERY 3:
+select 
+branch,city,
+sum(total) as total_sales
+from sales
+group by branch,city;
+
+## 4.Top N Products Sold:
+## Question: What are the top 5 products that have been sold the most in terms of quantity?
+## QUERY 4 :
+select 
+product_line,
+sum(quantity) as quantitysold
+from sales
+group by 
+product_line
+order by quantitysold desc
+limit 5;
+
+
+### 5. Average Rating by Product Line:
+##Question: What is the average rating for each product line?
+## QUERY 5:
+select product_line,avg(rating) as avg_rating
+from sales
+group by product_line;
+
+-- 					Customer Analysis ---
+##1. Customer Segmentation:
+##QUERY 1 :
+select customer_type,
+count(*) as customer_count,
+avg(total) as avg_spent
+from sales
+group by customer_type;
+
+##2. Customer Profitability:
+##QUERY 2:
+SELECT
+    customer_type,
+    SUM(gross_income) AS total_gross_income,
+    AVG(gross_margin_pct) AS average_gross_margin,
+    COUNT(*) AS total_purchases
+FROM
+    sales
+GROUP BY
+    customer_type;
+
+
+#Customer Purchase History:
+#Can you provide the purchase history for a specific customer, including product details, date, and total amount spent?
+##QUERY 3:
+select customer_type,invoice_id,date,product_line,quantity,total
+from sales
+where customer_type in('member','normal');
+
+
+
+###Payment Method Analysis:
+### Question: Which payment methods are most commonly used by customers, and what is the total revenue for each payment method?
+select payment,sum(total) as total_revenue,count(*) as total_count
+from sales
+group by payment
+order by total_revenue;
+
+##Branch Performance Comparison:
+##Question: Compare the performance of different branches by total revenue and total units sold. Which branch is the top performer?
+
+select branch,
+sum(total) as total_revenue,
+sum(quantity) as total_units_sold
+from sales
+group by branch
+order by total_revenue desc;
+
+
+
+	-- Advanced SQL --
+    -- Stored procedures
+#Stored Procedures: 1. Calculate Monthly Sales Total:
+
+DELIMITER //
+CREATE PROCEDURE Calculate_Monthly_Sales3()
+BEGIN
+    -- Create a table to store monthly sales
+    CREATE TABLE IF NOT EXISTS monthly_sales (
+        month DATE,
+        total_sales decimal
+    );
+
+    INSERT INTO monthly_sales (month, total_sales)
+    SELECT
+        DATE_FORMAT(date, '%Y-%m-01') AS month,
+        SUM(total) AS total_sales
+    FROM sales
+    GROUP BY month;
+END //
+DELIMITER ;
+
+
+CALL Calculate_Monthly_Sales3();
+
+SELECT
+    month,
+    total_sales
+FROM
+    Monthly_Sales;
+
+## no rename options for stored procedures
+  
+  -- #Views: 2. Create a Customer Purchases View:
+#Create a view that provides a simplified view of customer purchases, including customer details, product details, and purchase information.
+
+CREATE VIEW CustomerPurchases AS
+SELECT
+    s.customer_type,
+    s.gender,
+    s.product_line,
+    s.date,
+    s.total
+FROM
+    sales s;
+SELECT * FROM CustomerPurchases;
+SELECT * FROM CustomerPurchases WHERE customer_type = 'member';
+SELECT *
+FROM CustomerPurchases
+WHERE MONTH(date) = 3;
+
+
+-- create triggers
+
+DELIMITER //
+CREATE TRIGGER NewInvoiceTrigger
+AFTER INSERT ON sales
+FOR EACH ROW
+BEGIN
+    -- Log information about the new invoice
+    INSERT INTO InvoiceLog (invoice_id, log_message, timestamp)
+    VALUES (NEW.invoice_id, 'New invoice added', NOW());
+END //
+DELIMITER ;
+CREATE TABLE InvoiceLog (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    invoice_id VARCHAR(255),
+    log_message VARCHAR(255),
+    timestamp DATETIME
+);
+INSERT INTO sales (invoice_id, branch, city, customer_type, gender, product_line, unit_price, quantity, tax_pct, total, date, time, payment, cogs, gross_margin_pct, gross_income, rating)
+VALUES ('new_invoice_id', 'A', 'City X', 'Customer Type 1', 'Male', 'Product A', 10.0, 5, 2.5, 50.0, '2023-03-07', '12:00:00', 'Credit Card', 45.0, 30.0, 10.0, 4.5);
+SELECT 
+    *
+FROM
+    InvoiceLog;
